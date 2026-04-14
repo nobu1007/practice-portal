@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タスク管理 — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/common.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/supabase-init.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/nav.js"></script>
+  <style>
+    .task-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .task-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .task-header:hover { background: var(--color-bg); }
+    .task-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      flex: 1;
+    }
+    .task-meta {
+      font-size: 0.78rem;
+      color: var(--color-text-muted);
+      margin-top: 2px;
+    }
+    .task-body { display: none; padding: 0 20px 16px; }
+    .task-body.open { display: block; }
+    .subtask-row {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .subtask-row:last-child { border-bottom: none; }
+    .subtask-title { font-size: 0.88rem; font-weight: 600; margin-bottom: 6px; }
+    .condition-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 0;
+      font-size: 0.85rem;
+    }
+    .condition-row input[type=checkbox] { cursor: pointer; accent-color: var(--color-primary); width:16px; height:16px; }
+    .condition-text.done { text-decoration: line-through; color: var(--color-text-muted); }
+    .task-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* メンバーバー */
+    .member-bar {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .member-pill {
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: var(--shadow-sm);
+    }
+    .member-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--color-grad-start), var(--color-grad-end));
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .member-info { flex: 1; min-width: 0; }
+    .member-name { font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .member-lv { font-size: 0.72rem; color: var(--color-text-muted); }
+    .member-exp-track { height: 4px; background: var(--color-border); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+    .member-exp-fill { height: 100%; background: linear-gradient(90deg, var(--color-grad-start), var(--color-grad-end)); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="dashboard.html" class="nav-brand"><i class="fa-solid fa-fire"></i> Practice Portal</a>
+  <ul class="nav-links">
+    <li><a href="dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a></li>
+    <li><a href="tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a></li>
+    <li><a href="quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a></li>
+    <li><a href="mindmap.html"><i class="fa-solid fa-diagram-project"></i> マップ</a></li>
+  </ul>
+  <div class="nav-user">
+    <span class="nav-user-name">---</span>
+    <button class="btn btn-ghost btn-sm nav-logout-btn"><i class="fa-solid fa-right-from-bracket"></i></button>
+    <button class="nav-toggle" id="nav-toggle"><i class="fa-solid fa-bars"></i></button>
+  </div>
+</nav>
+
+<div class="nav-mobile-menu" id="nav-mobile-menu">
+  <a href="dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a>
+  <a href="tasks.html"><i class="fa-solid fa-list-check"></i> タスク管理</a>
+  <a href="quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a>
+  <a href="mindmap.html"><i class="fa-solid fa-diagram-project"></i> マインドマップ</a>
+  <div class="divider"></div>
+  <a href="#" class="nav-logout-btn" style="color:var(--color-text-muted)"><i class="fa-solid fa-right-from-bracket"></i> ログアウト</a>
+</div>
+
+<main class="page">
+  <div class="container-sm">
+
+    <div id="loading" class="loading-wrap"><div class="spinner"></div><span>読み込み中...</span></div>
+
+    <div id="content" style="display:none">
+
+      <!-- EXP バー -->
+      <div class="exp-bar-wrap">
+        <div class="exp-bar-header">
+          <span class="exp-level-badge" id="level-badge">Lv.1</span>
+          <span id="exp-text" style="font-size:0.82rem; color:var(--color-text-muted)">0 EXP</span>
+        </div>
+        <div class="exp-track"><div class="exp-fill" id="exp-fill" style="width:0%"></div></div>
+      </div>
+
+      <!-- メンバーバー -->
+      <div id="member-bar" class="member-bar"></div>
+
+      <!-- アラート -->
+      <div id="alert" class="alert" style="display:none"></div>
+
+      <!-- タスク一覧ヘッダ -->
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+        <h2 class="section-title" style="margin:0"><i class="fa-solid fa-list-check"></i> タスク一覧</h2>
+        <span id="admin-badge" class="badge badge-warning" style="display:none"><i class="fa-solid fa-shield-halved"></i> 管理者</span>
+      </div>
+
+      <div id="task-list"></div>
+
+      <div id="empty-tasks" class="empty-state" style="display:none">
+        <i class="fa-solid fa-inbox"></i>
+        <p>タスクがありません</p>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<script>
+  let _profile = null;
+  let _tasks = [];
+  let _myProgress = {};    // task_id → progress row
+  let _condProgress = {};  // condition_id → progress row
+  let _allProfiles = [];
+  let _allStats = {};      // user_id → user_stats
+
+  // ステータス表示マップ
+  const STATUS_LABEL = {
+    not_started: { text: '未着手', cls: 'badge-muted' },
+    in_progress:  { text: '進行中', cls: 'badge-primary' },
+    requested:    { text: '申請中', cls: 'badge-warning' },
+    approved:     { text: '完了',   cls: 'badge-success' },
+  };
+
+  function showAlert(type, msg) {
+    const el = document.getElementById('alert');
+    el.className = `alert alert-${type}`;
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 4000);
+  }
+
+  function renderExpBar(stats, suffix = '') {
+    if (!stats) return;
+    const level = stats.level;
+    const exp   = stats.total_exp;
+    const curReq  = level * (level - 1) / 2 * 100;
+    const nextReq = level * (level + 1) / 2 * 100;
+    const pct = nextReq > curReq ? Math.min(100, ((exp - curReq) / (nextReq - curReq)) * 100) : 100;
+    document.getElementById('level-badge' + suffix).textContent = `Lv.${level}`;
+    document.getElementById('exp-text' + suffix).textContent    = `${exp} EXP`;
+    document.getElementById('exp-fill' + suffix).style.width   = pct + '%';
+  }
+
+  function renderMemberBar() {
+    const bar = document.getElementById('member-bar');
+    bar.innerHTML = _allProfiles.map(p => {
+      const s = _allStats[p.id];
+      const level = s?.level || 1;
+      const exp   = s?.total_exp || 0;
+      const curReq  = level * (level - 1) / 2 * 100;
+      const nextReq = level * (level + 1) / 2 * 100;
+      const pct = nextReq > curReq ? Math.min(100, ((exp - curReq) / (nextReq - curReq)) * 100) : 0;
+      const initial = (p.display_name || '?')[0].toUpperCase();
+      return `
+        <div class="member-pill">
+          <div class="member-avatar">${initial}</div>
+          <div class="member-info">
+            <div class="member-name">${p.display_name}</div>
+            <div class="member-lv">Lv.${level} / ${exp} EXP</div>
+            <div class="member-exp-track"><div class="member-exp-fill" style="width:${pct}%"></div></div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderTasks() {
+    const list = document.getElementById('task-list');
+    const empty = document.getElementById('empty-tasks');
+    const isAdmin = _profile.role === 'admin';
+
+    if (_tasks.length === 0) { list.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+
+    list.innerHTML = _tasks.map(task => {
+      const prog = _myProgress[task.id];
+      const status = prog?.status || 'not_started';
+      const sl = STATUS_LABEL[status];
+      const subtasksHtml = (task.subtasks || []).map(sub => {
+        const condsHtml = (sub.conditions || []).map(cond => {
+          const cp = _condProgress[cond.id];
+          const done = cp?.completed || false;
+          return `
+            <div class="condition-row">
+              <input type="checkbox" data-cid="${cond.id}" data-tid="${task.id}" ${done ? 'checked' : ''}>
+              <span class="condition-text ${done ? 'done' : ''}">${cond.text}</span>
+              ${cond.exp ? `<span class="badge badge-muted" style="margin-left:auto">+${cond.exp}EXP</span>` : ''}
+            </div>`;
+        }).join('');
+        return `
+          <div class="subtask-row">
+            <div class="subtask-title">${sub.title} ${sub.exp ? `<span class="badge badge-muted">+${sub.exp}EXP</span>` : ''}</div>
+            ${condsHtml}
+          </div>`;
+      }).join('');
+
+      const actionBtns = (() => {
+        if (isAdmin && status === 'requested') {
+          return `<button class="btn btn-success btn-sm" data-action="approve" data-pid="${prog.id}"><i class="fa-solid fa-check"></i> 承認する</button>`;
+        }
+        if (!isAdmin) {
+          if (status === 'not_started') return `<button class="btn btn-primary btn-sm" data-action="start" data-tid="${task.id}"><i class="fa-solid fa-play"></i> 開始</button>`;
+          if (status === 'in_progress') return `<button class="btn btn-ghost btn-sm" data-action="request" data-tid="${task.id}"><i class="fa-solid fa-paper-plane"></i> 承認申請</button>`;
+        }
+        return '';
+      })();
+
+      return `
+        <div class="task-card">
+          <div class="task-header" data-tid="${task.id}">
+            <div>
+              <div class="task-title">${task.title}</div>
+              <div class="task-meta">完了EXP: ${task.clear_exp} ${task.deadline_bonus ? `/ 期限ボーナス: ${task.deadline_bonus}` : ''}</div>
+            </div>
+            <span class="badge ${sl.cls}">${sl.text}</span>
+            <i class="fa-solid fa-chevron-down" style="color:var(--color-text-muted); font-size:0.75rem; flex-shrink:0"></i>
+          </div>
+          <div class="task-body" id="task-body-${task.id}">
+            ${subtasksHtml}
+            ${actionBtns ? `<div class="task-actions">${actionBtns}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    // アコーディオン
+    list.querySelectorAll('.task-header').forEach(h => {
+      h.addEventListener('click', () => {
+        const body = document.getElementById('task-body-' + h.dataset.tid);
+        body.classList.toggle('open');
+      });
+    });
+
+    // 条件チェックボックス
+    list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => handleConditionChange(cb));
+    });
+
+    // アクションボタン
+    list.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => handleAction(btn));
+    });
+  }
+
+  async function handleConditionChange(cb) {
+    const condId = cb.dataset.cid;
+    const taskId = cb.dataset.tid;
+    cb.disabled = true;
+    try {
+      const updated = await API.upsertConditionProgress(_profile.id, condId, { completed: cb.checked });
+      _condProgress[condId] = updated;
+      // タスク進捗を in_progress に更新（まだ開始していない場合）
+      if (cb.checked && (!_myProgress[taskId] || _myProgress[taskId].status === 'not_started')) {
+        const p = await API.upsertTaskProgress(_profile.id, taskId, { status: 'in_progress' });
+        _myProgress[taskId] = p;
+      }
+      renderTasks();
+    } catch(e) {
+      showAlert('error', e.message);
+      cb.checked = !cb.checked;
+    } finally {
+      cb.disabled = false;
+    }
+  }
+
+  async function handleAction(btn) {
+    const action = btn.dataset.action;
+    btn.disabled = true;
+    try {
+      if (action === 'start') {
+        const p = await API.upsertTaskProgress(_profile.id, btn.dataset.tid, { status: 'in_progress' });
+        _myProgress[btn.dataset.tid] = p;
+        renderTasks();
+      } else if (action === 'request') {
+        const p = await API.upsertTaskProgress(_profile.id, btn.dataset.tid, { status: 'requested' });
+        _myProgress[btn.dataset.tid] = p;
+        renderTasks();
+        showAlert('success', '承認申請を送信しました');
+      } else if (action === 'approve') {
+        const result = await API.approveTask(btn.dataset.pid);
+        showAlert('success', `承認しました！ +${result.exp_granted} EXP`);
+        await reload();
+      }
+    } catch(e) {
+      showAlert('error', e.message);
+      btn.disabled = false;
+    }
+  }
+
+  async function reload() {
+    const [taskProgress, condProgress, stats, allProfiles] = await Promise.all([
+      API.getUserTaskProgress(_profile.id),
+      API.getUserConditionProgress(_profile.id),
+      API.getUserStats(_profile.id),
+      _profile.role === 'admin' ? API.getAllProfiles() : Promise.resolve([]),
+    ]);
+
+    _myProgress = {};
+    taskProgress.forEach(p => _myProgress[p.task_id] = p);
+    _condProgress = {};
+    condProgress.forEach(p => _condProgress[p.condition_id] = p);
+
+    if (_profile.role === 'admin') {
+      _allProfiles = allProfiles;
+      // 各メンバーのstatsを取得
+      const statsArr = await Promise.all(allProfiles.map(p => API.getUserStats(p.id)));
+      _allStats = {};
+      allProfiles.forEach((p, i) => _allStats[p.id] = statsArr[i]);
+    }
+
+    renderExpBar(stats);
+    if (_profile.role === 'admin') renderMemberBar();
+    renderTasks();
+  }
+
+  (async () => {
+    const auth = await Auth.requireAuth();
+    if (!auth) return;
+    _profile = auth.profile;
+
+    Nav.init();
+    Nav.setUserName(_profile.display_name);
+
+    if (_profile.role === 'admin') {
+      document.getElementById('admin-badge').style.display = 'inline-flex';
+    }
+
+    _tasks = await API.getTasks();
+    await reload();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  })();
+</script>
+</body>
+</html>

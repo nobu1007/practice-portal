@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ダッシュボード — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/common.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/supabase-init.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/nav.js"></script>
+  <style>
+    .welcome-bar {
+      background: linear-gradient(135deg, var(--color-grad-start) 0%, var(--color-grad-end) 100%);
+      border-radius: var(--radius-lg);
+      color: #fff;
+      padding: 24px 28px;
+      margin-bottom: 24px;
+    }
+    .welcome-bar h2 { margin: 0 0 4px; font-size: 1.2rem; }
+    .welcome-bar p  { margin: 0; font-size: 0.9rem; opacity: 0.85; }
+    .exp-bar-wrap { background: rgba(255,255,255,0.2); border: none; box-shadow: none; margin-top: 16px; padding: 12px 0 0; }
+    .exp-bar-wrap .exp-level-badge { background: rgba(255,255,255,0.25); }
+    .exp-bar-wrap .exp-track { background: rgba(255,255,255,0.3); }
+    .exp-bar-wrap .exp-fill { background: #fff; }
+    .exp-bar-wrap .exp-bar-header { color: rgba(255,255,255,0.9); }
+
+    .stats-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 14px 20px;
+      flex: 1;
+      min-width: 130px;
+      box-shadow: var(--shadow-sm);
+    }
+    .stat-pill-label { font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 4px; }
+    .stat-pill-value { font-size: 1.5rem; font-weight: 700; color: var(--color-text); }
+    .stat-pill-value .unit { font-size: 0.85rem; font-weight: 400; color: var(--color-text-muted); }
+  </style>
+</head>
+<body>
+
+<!-- ナビゲーション -->
+<nav class="nav">
+  <a href="dashboard.html" class="nav-brand"><i class="fa-solid fa-fire"></i> Practice Portal</a>
+  <ul class="nav-links">
+    <li><a href="dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a></li>
+    <li><a href="tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a></li>
+    <li><a href="quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a></li>
+    <li><a href="mindmap.html"><i class="fa-solid fa-diagram-project"></i> マップ</a></li>
+  </ul>
+  <div class="nav-user">
+    <span class="nav-user-name">---</span>
+    <button class="btn btn-ghost btn-sm nav-logout-btn"><i class="fa-solid fa-right-from-bracket"></i></button>
+    <button class="nav-toggle" id="nav-toggle"><i class="fa-solid fa-bars"></i></button>
+  </div>
+</nav>
+
+<!-- モバイルメニュー -->
+<div class="nav-mobile-menu" id="nav-mobile-menu">
+  <a href="dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a>
+  <a href="tasks.html"><i class="fa-solid fa-list-check"></i> タスク管理</a>
+  <a href="quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a>
+  <a href="mindmap.html"><i class="fa-solid fa-diagram-project"></i> マインドマップ</a>
+  <div class="divider"></div>
+  <a href="#" class="nav-logout-btn" style="color:var(--color-text-muted)"><i class="fa-solid fa-right-from-bracket"></i> ログアウト</a>
+</div>
+
+<main class="page">
+  <div class="container">
+
+    <!-- ローディング -->
+    <div id="loading" class="loading-wrap">
+      <div class="spinner"></div>
+      <span>読み込み中...</span>
+    </div>
+
+    <div id="content" style="display:none">
+
+      <!-- ウェルカムバー + EXPバー -->
+      <div class="welcome-bar">
+        <h2>おかえりなさい、<span id="user-name">---</span>さん</h2>
+        <p id="welcome-sub">今日も訓練をがんばりましょう</p>
+        <div class="exp-bar-wrap">
+          <div class="exp-bar-header">
+            <span class="exp-level-badge" id="level-badge">Lv.1</span>
+            <span id="exp-text" style="font-size:0.82rem">0 EXP</span>
+          </div>
+          <div class="exp-track"><div class="exp-fill" id="exp-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- クイック統計 -->
+      <div class="stats-row" id="stats-row">
+        <div class="stat-pill">
+          <div class="stat-pill-label">進行中タスク</div>
+          <div class="stat-pill-value" id="stat-tasks">— <span class="unit">件</span></div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-pill-label">今日の復習</div>
+          <div class="stat-pill-value" id="stat-quiz">— <span class="unit">問</span></div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-pill-label">マップ数</div>
+          <div class="stat-pill-value" id="stat-maps">— <span class="unit">個</span></div>
+        </div>
+      </div>
+
+      <!-- ツールカード -->
+      <div class="grid-3">
+        <a href="tasks.html" class="tool-card">
+          <div class="tool-card-icon"><i class="fa-solid fa-list-check"></i></div>
+          <div class="tool-card-title">タスク管理</div>
+          <div class="tool-card-desc">訓練タスクの進捗管理と承認申請</div>
+          <div class="tool-card-meta" id="card-tasks-meta">読み込み中...</div>
+        </a>
+        <a href="quiz.html" class="tool-card">
+          <div class="tool-card-icon" style="background:rgba(16,185,129,0.1); color:var(--color-success)"><i class="fa-solid fa-circle-question"></i></div>
+          <div class="tool-card-title">クイズ</div>
+          <div class="tool-card-desc">レベル別問題と忘却曲線復習</div>
+          <div class="tool-card-meta" id="card-quiz-meta">読み込み中...</div>
+        </a>
+        <a href="mindmap.html" class="tool-card">
+          <div class="tool-card-icon" style="background:rgba(59,130,246,0.1); color:var(--color-info)"><i class="fa-solid fa-diagram-project"></i></div>
+          <div class="tool-card-title">マインドマップ</div>
+          <div class="tool-card-desc">知識の整理と可視化</div>
+          <div class="tool-card-meta" id="card-maps-meta">読み込み中...</div>
+        </a>
+      </div>
+
+    </div><!-- /content -->
+  </div>
+</main>
+
+<script>
+  (async () => {
+    const auth = await Auth.requireAuth();
+    if (!auth) return;
+
+    const { profile } = auth;
+
+    Nav.init();
+    Nav.setUserName(profile.display_name);
+    document.getElementById('user-name').textContent = profile.display_name;
+
+    // EXP / レベル
+    const stats = await API.getUserStats(profile.id);
+    if (stats) {
+      document.getElementById('level-badge').textContent = `Lv.${stats.level}`;
+      document.getElementById('exp-text').textContent = `${stats.total_exp} EXP`;
+      // 次レベルまでのEXP計算
+      const curLvReq = stats.level * (stats.level - 1) / 2 * 100;
+      const nextLvReq = stats.level * (stats.level + 1) / 2 * 100;
+      const progress = nextLvReq > curLvReq
+        ? Math.min(100, ((stats.total_exp - curLvReq) / (nextLvReq - curLvReq)) * 100)
+        : 100;
+      document.getElementById('exp-fill').style.width = progress + '%';
+    }
+
+    // タスク統計
+    const [taskProgress, quizProgress, maps] = await Promise.all([
+      API.getUserTaskProgress(profile.id),
+      API.getUserQuizProgress(profile.id),
+      API.getMindmaps(profile.id),
+    ]);
+
+    const inProgress = taskProgress.filter(p => p.status === 'in_progress' || p.status === 'requested').length;
+    const now = new Date();
+    const reviewDue = quizProgress.filter(p => p.next_review_at && new Date(p.next_review_at) <= now).length;
+
+    document.getElementById('stat-tasks').innerHTML = `${inProgress} <span class="unit">件</span>`;
+    document.getElementById('stat-quiz').innerHTML  = `${reviewDue} <span class="unit">問</span>`;
+    document.getElementById('stat-maps').innerHTML  = `${maps.length} <span class="unit">個</span>`;
+
+    document.getElementById('card-tasks-meta').textContent = inProgress > 0 ? `進行中 ${inProgress} 件` : 'タスクなし';
+    document.getElementById('card-quiz-meta').textContent  = reviewDue > 0 ? `復習 ${reviewDue} 問あり` : '今日の復習なし';
+    document.getElementById('card-maps-meta').textContent  = `マップ ${maps.length} 個`;
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>クイズ実施 — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/common.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/supabase-init.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/api.js"></script>
+  <style>
+    .quiz-play-wrap {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+    .quiz-progress-bar {
+      height: 6px;
+      background: var(--color-border);
+      border-radius: 6px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .quiz-progress-fill {
+      height: 100%;
+      background: var(--color-primary);
+      border-radius: 6px;
+      transition: width 0.3s ease;
+    }
+    .question-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+      padding: 28px 24px;
+      margin-bottom: 20px;
+    }
+    .question-no {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      margin-bottom: 12px;
+    }
+    .question-text {
+      font-size: 1.05rem;
+      font-weight: 600;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .options-list { display: flex; flex-direction: column; gap: 10px; }
+    .option-btn {
+      width: 100%;
+      text-align: left;
+      padding: 14px 18px;
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      font-size: 0.92rem;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .option-btn:hover:not(:disabled) { border-color: var(--color-primary); background: rgba(255,107,53,0.04); }
+    .option-btn.correct  { border-color: var(--color-success); background: rgba(16,185,129,0.08); color: #065f46; }
+    .option-btn.wrong    { border-color: var(--color-danger);  background: rgba(239,68,68,0.08);  color: #991b1b; }
+    .option-btn.missed   { border-color: var(--color-success); background: rgba(16,185,129,0.04); }
+    .option-btn:disabled { cursor: default; }
+    .option-index {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--color-border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.78rem; font-weight: 700; flex-shrink: 0;
+    }
+    .correct  .option-index { background: var(--color-success); color: #fff; }
+    .wrong    .option-index { background: var(--color-danger); color: #fff; }
+    .explanation {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: #eff6ff;
+      border-radius: var(--radius-md);
+      font-size: 0.88rem;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+
+    /* 結果画面 */
+    .result-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+      padding: 40px 28px;
+      text-align: center;
+    }
+    .result-score {
+      font-size: 3.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--color-grad-start), var(--color-grad-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .result-msg { font-size: 1.1rem; font-weight: 600; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="dashboard.html" class="nav-brand"><i class="fa-solid fa-fire"></i> Practice Portal</a>
+  <ul class="nav-links">
+    <li><a href="quiz.html"><i class="fa-solid fa-arrow-left"></i> クイズ一覧へ戻る</a></li>
+  </ul>
+  <div class="nav-user">
+    <span class="nav-user-name">---</span>
+  </div>
+</nav>
+
+<main class="page">
+  <div class="quiz-play-wrap">
+
+    <div id="loading" class="loading-wrap"><div class="spinner"></div><span>読み込み中...</span></div>
+
+    <!-- クイズ本体 -->
+    <div id="quiz-section" style="display:none">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <span id="problem-title" style="font-weight:700; font-size:1rem"></span>
+        <span id="question-counter" style="font-size:0.85rem; color:var(--color-text-muted)"></span>
+      </div>
+      <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="progress-fill"></div></div>
+
+      <div class="question-card">
+        <div class="question-no" id="question-no"></div>
+        <div class="question-text" id="question-text"></div>
+        <div class="options-list" id="options-list"></div>
+        <div id="explanation" style="display:none"></div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end;">
+        <button id="btn-next" class="btn btn-primary" style="display:none">
+          次の問題 <i class="fa-solid fa-arrow-right"></i>
+        </button>
+        <button id="btn-finish" class="btn btn-primary" style="display:none">
+          結果を見る <i class="fa-solid fa-flag-checkered"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 結果画面 -->
+    <div id="result-section" style="display:none">
+      <div class="result-card">
+        <div class="result-score" id="result-score">0%</div>
+        <div class="result-msg" id="result-msg"></div>
+        <p style="color:var(--color-text-muted); font-size:0.88rem; margin-bottom:28px" id="result-sub"></p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btn-retry"><i class="fa-solid fa-rotate-right"></i> もう一度</button>
+          <a href="quiz.html" class="btn btn-ghost"><i class="fa-solid fa-list"></i> 一覧に戻る</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  let _profile = null;
+  let _problem  = null;
+  let _questions = [];
+  let _current  = 0;
+  let _correctCount = 0;
+  let _selectedIdx  = null;
+  let _prevProgress = null;
+
+  const bc = new BroadcastChannel('quiz-result');
+
+  function showQuestion(idx) {
+    const q = _questions[idx];
+    const total = _questions.length;
+
+    document.getElementById('question-no').textContent = `問題 ${idx + 1}`;
+    document.getElementById('question-text').textContent = q.question_text;
+    document.getElementById('question-counter').textContent = `${idx + 1} / ${total}`;
+    document.getElementById('progress-fill').style.width = ((idx) / total * 100) + '%';
+    document.getElementById('explanation').style.display = 'none';
+    document.getElementById('btn-next').style.display   = 'none';
+    document.getElementById('btn-finish').style.display = 'none';
+    _selectedIdx = null;
+
+    const optionsEl = document.getElementById('options-list');
+    const options = Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]');
+    optionsEl.innerHTML = options.map((opt, i) => `
+      <button class="option-btn" data-idx="${i}">
+        <div class="option-index">${String.fromCharCode(65 + i)}</div>
+        <span>${opt}</span>
+      </button>`).join('');
+
+    optionsEl.querySelectorAll('.option-btn').forEach(btn => {
+      btn.addEventListener('click', () => handleAnswer(btn, q, options.length));
+    });
+  }
+
+  function handleAnswer(btn, q, optionCount) {
+    if (_selectedIdx !== null) return;
+    _selectedIdx = parseInt(btn.dataset.idx);
+    const isCorrect = _selectedIdx === q.correct_answer;
+    if (isCorrect) _correctCount++;
+
+    const allBtns = document.querySelectorAll('.option-btn');
+    allBtns.forEach(b => {
+      b.disabled = true;
+      const i = parseInt(b.dataset.idx);
+      if (i === q.correct_answer) b.classList.add('correct');
+      else if (i === _selectedIdx) b.classList.add('wrong');
+    });
+
+    if (q.explanation) {
+      const expEl = document.getElementById('explanation');
+      expEl.innerHTML = `<i class="fa-solid fa-lightbulb"></i> <strong>解説:</strong> ${q.explanation}`;
+      expEl.style.display = 'block';
+      expEl.className = 'explanation';
+    }
+
+    const isLast = _current === _questions.length - 1;
+    document.getElementById(isLast ? 'btn-finish' : 'btn-next').style.display = 'inline-flex';
+  }
+
+  document.getElementById('btn-next').addEventListener('click', () => {
+    _current++;
+    showQuestion(_current);
+  });
+
+  document.getElementById('btn-finish').addEventListener('click', () => showResult());
+
+  async function showResult() {
+    const total  = _questions.length;
+    const score  = Math.round(_correctCount / total * 100);
+    const attempts = (_prevProgress?.attempt_count || 0) + 1;
+
+    // BroadcastChannel で quiz.html に通知
+    bc.postMessage({ problemId: _problem.id, score, attemptCount: attempts });
+
+    document.getElementById('result-score').textContent = score + '%';
+
+    let msg, sub;
+    if (score >= 90)      { msg = '素晴らしい！'; sub = 'パーフェクトに近いスコアです'; }
+    else if (score >= 70) { msg = 'よくできました！'; sub = 'もう少しで完璧です'; }
+    else if (score >= 50) { msg = 'がんばりました'; sub = '復習してさらに力をつけましょう'; }
+    else                  { msg = 'まだまだこれから'; sub = 'もう一度挑戦してみましょう'; }
+
+    document.getElementById('result-msg').textContent = msg;
+    document.getElementById('result-sub').textContent = `${_correctCount}/${total}問正解 / ${sub}`;
+    document.getElementById('progress-fill').style.width = '100%';
+
+    document.getElementById('quiz-section').style.display   = 'none';
+    document.getElementById('result-section').style.display = 'block';
+  }
+
+  document.getElementById('btn-retry').addEventListener('click', () => {
+    _current = 0;
+    _correctCount = 0;
+    _selectedIdx = null;
+    document.getElementById('result-section').style.display = 'none';
+    document.getElementById('quiz-section').style.display   = 'block';
+    showQuestion(0);
+  });
+
+  (async () => {
+    const auth = await Auth.requireAuth();
+    if (!auth) return;
+    _profile = auth.profile;
+
+    // nav-user-name
+    document.querySelectorAll('.nav-user-name').forEach(el => el.textContent = _profile.display_name);
+
+    const params = new URLSearchParams(window.location.search);
+    const problemId = params.get('id');
+    if (!problemId) { window.location.href = 'quiz.html'; return; }
+
+    const [questions, progress] = await Promise.all([
+      API.getQuizQuestions(problemId),
+      API.getUserQuizProgress(_profile.id).then(arr => arr.find(p => p.problem_id === problemId) || null),
+    ]);
+
+    // problem タイトル取得
+    const problems = await API.getQuizProblems();
+    _problem = problems.find(p => p.id === problemId);
+    if (!_problem || !questions.length) { window.location.href = 'quiz.html'; return; }
+
+    _questions = questions;
+    _prevProgress = progress;
+
+    document.getElementById('problem-title').textContent = _problem.title;
+
+    document.getElementById('loading').style.display    = 'none';
+    document.getElementById('quiz-section').style.display = 'block';
+    showQuestion(0);
+  })();
+</script>
+</body>
+</html>

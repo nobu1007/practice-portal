@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>マインドマップ — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/js/supabase-init.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/api.js"></script>
+  <style>
+    :root {
+      --nav-h: 48px;
+      --sidebar-w: 260px;
+      --color-primary: #ff6b35;
+      --color-border: #e9ecef;
+      --color-bg: #f8f9fa;
+      --color-text: #212529;
+      --color-text-muted: #6c757d;
+      --color-surface: #fff;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#fff; }
+
+    /* トップバー */
+    .topbar {
+      position: fixed; top:0; left:0; right:0; height: var(--nav-h);
+      background: #fff; border-bottom: 1px solid var(--color-border);
+      display: flex; align-items: center; padding: 0 12px; gap: 8px;
+      z-index: 100;
+    }
+    .topbar-brand { font-weight:700; font-size:0.95rem; color: var(--color-primary); text-decoration:none; }
+    .topbar-divider { width:1px; height:20px; background: var(--color-border); margin: 0 4px; }
+    .topbar-title { font-size:0.9rem; font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; padding: 4px 8px; border-radius:6px; }
+    .topbar-title:hover { background: var(--color-bg); }
+    .tbtn {
+      display:inline-flex; align-items:center; justify-content:center;
+      gap:5px; padding: 6px 10px; border-radius:8px; border:1px solid var(--color-border);
+      background:#fff; font-size:0.82rem; cursor:pointer; color: var(--color-text);
+      white-space:nowrap;
+    }
+    .tbtn:hover { background: var(--color-bg); }
+    .tbtn.primary { background: var(--color-primary); border-color: var(--color-primary); color:#fff; }
+    .tbtn.primary:hover { background: #e05a2e; }
+    .tbtn.danger { color: #ef4444; border-color: #fecaca; }
+    .tbtn.danger:hover { background: #fef2f2; }
+
+    /* レイアウト */
+    .layout {
+      display: flex;
+      height: calc(100vh - var(--nav-h));
+      margin-top: var(--nav-h);
+    }
+
+    /* サイドバー（マップ一覧） */
+    .sidebar {
+      width: var(--sidebar-w);
+      border-right: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 12px 14px 8px;
+      border-bottom: 1px solid var(--color-border);
+      display: flex; align-items:center; justify-content:space-between;
+    }
+    .sidebar-header h3 { margin:0; font-size:0.88rem; color: var(--color-text-muted); }
+    .map-list { overflow-y: auto; flex: 1; }
+    .map-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      display: flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    .map-item:hover { background: var(--color-bg); }
+    .map-item.active { border-left-color: var(--color-primary); background: rgba(255,107,53,0.05); }
+    .map-item-title { font-size:0.88rem; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .map-item-date  { font-size:0.72rem; color: var(--color-text-muted); flex-shrink:0; }
+    .map-item-del { opacity:0; font-size:0.75rem; color: #ef4444; cursor:pointer; padding:2px 4px; }
+    .map-item:hover .map-item-del { opacity: 1; }
+
+    /* キャンバスエリア */
+    .canvas-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      touch-action: none;
+      background: #fff;
+    }
+    .stage {
+      position: absolute; left:0; top:0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .nodes-layer { position: absolute; left:0; top:0; }
+    .edges-layer { position: absolute; left:0; top:0; pointer-events:none; overflow:visible; }
+
+    /* ノード */
+    .node {
+      position: absolute;
+      padding: 10px 12px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 14px;
+      background: #fff;
+      cursor: grab;
+      user-select: none;
+      min-width: 60px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .node.central {
+      border: 2.5px solid #0a84ff;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(10,132,255,0.15);
+    }
+    .node.selected { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+    .node-title { font-size: 0.88rem; line-height:1.4; white-space:nowrap; }
+    .node.central .node-title { font-size:1rem; }
+    .node-comment { font-size:0.75rem; color: var(--color-text-muted); margin-top:3px; white-space:nowrap; }
+    .node-add-btn {
+      position:absolute; right:-14px; top:50%; transform:translateY(-50%);
+      width:22px; height:22px; border-radius:50%;
+      background: var(--color-primary); color:#fff;
+      display:none; align-items:center; justify-content:center;
+      font-size:0.75rem; cursor:pointer; border:none; z-index:2;
+    }
+    .node:hover .node-add-btn { display:flex; }
+    .node-del-btn {
+      position:absolute; top:-8px; right:-8px;
+      width:18px; height:18px; border-radius:50%;
+      background:#ef4444; color:#fff;
+      display:none; align-items:center; justify-content:center;
+      font-size:0.6rem; cursor:pointer; border:none; z-index:2;
+    }
+    .node:hover .node-del-btn { display:flex; }
+    .node.central .node-del-btn { display:none !important; }
+
+    /* 空状態 */
+    .canvas-empty {
+      position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; color: var(--color-text-muted);
+      pointer-events:none; gap:12px;
+    }
+    .canvas-empty i { font-size:2.5rem; opacity:0.3; }
+
+    /* モバイル: サイドバーをドロワーに */
+    .drawer-overlay { display:none; }
+    @media (max-width: 767px) {
+      .sidebar {
+        position: fixed; left:0; top: var(--nav-h); bottom:0;
+        z-index: 90; transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 2px 0 16px rgba(0,0,0,0.12);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .drawer-overlay {
+        display:none; position:fixed; inset:0; top: var(--nav-h);
+        background: rgba(0,0,0,0.3); z-index:89;
+      }
+      .drawer-overlay.open { display:block; }
+    }
+
+    /* 保存インジケーター */
+    .save-indicator {
+      position:fixed; bottom:16px; right:16px;
+      font-size:0.78rem; color: var(--color-text-muted);
+      background: rgba(255,255,255,0.9);
+      padding: 6px 12px; border-radius:20px;
+      border: 1px solid var(--color-border);
+      pointer-events:none;
+      opacity:0; transition: opacity 0.3s;
+    }
+    .save-indicator.visible { opacity:1; }
+  </style>
+</head>
+<body>
+
+<!-- トップバー -->
+<div class="topbar">
+  <a href="dashboard.html" class="topbar-brand"><i class="fa-solid fa-fire"></i></a>
+  <div class="topbar-divider"></div>
+  <button class="tbtn" id="btn-sidebar-toggle" style="display:none"><i class="fa-solid fa-bars"></i></button>
+  <span class="topbar-title" id="map-title" title="クリックで名前を変更">マップを選択してください</span>
+  <button class="tbtn primary" id="btn-new-map"><i class="fa-solid fa-plus"></i> 新規</button>
+  <button class="tbtn" id="btn-add-node" disabled title="ノードを追加"><i class="fa-solid fa-circle-plus"></i> ノード追加</button>
+  <a href="dashboard.html" class="tbtn" style="margin-left:auto"><i class="fa-solid fa-arrow-left"></i></a>
+</div>
+
+<div class="drawer-overlay" id="drawer-overlay"></div>
+
+<div class="layout">
+  <!-- サイドバー -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h3>マップ一覧</h3>
+    </div>
+    <div class="map-list" id="map-list">
+      <div style="padding:20px; text-align:center; color:var(--color-text-muted); font-size:0.85rem">読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- キャンバス -->
+  <div class="canvas-area" id="canvas-area">
+    <div class="canvas-empty" id="canvas-empty">
+      <i class="fa-solid fa-diagram-project"></i>
+      <p style="margin:0; font-size:0.9rem">左のリストからマップを選択するか、新規作成してください</p>
+    </div>
+    <div class="stage" id="stage">
+      <svg class="edges-layer" id="edges-svg" width="4000" height="4000"></svg>
+      <div class="nodes-layer" id="nodes-layer"></div>
+    </div>
+  </div>
+</div>
+
+<div class="save-indicator" id="save-indicator"><i class="fa-solid fa-cloud-arrow-up"></i> 保存中...</div>
+
+<script>
+// ===================================================
+// 状態
+// ===================================================
+let _profile = null;
+let _maps = [];
+let _currentMapId = null;
+let _nodes = [];            // { id, mindmap_id, title, comment, position_x, position_y, width, height, is_central, parent_id }
+let _selectedNodeId = null;
+let _saveTimer = null;
+
+// ===================================================
+// ビューポート変換
+// ===================================================
+let _vt = { x: 0, y: 0, scale: 1 };
+function applyVT() {
+  document.getElementById('stage').style.transform =
+    `translate(${_vt.x}px,${_vt.y}px) scale(${_vt.scale})`;
+}
+function screenToCanvas(sx, sy) {
+  const rect = document.getElementById('canvas-area').getBoundingClientRect();
+  return {
+    x: (sx - rect.left - _vt.x) / _vt.scale,
+    y: (sy - rect.top  - _vt.y) / _vt.scale,
+  };
+}
+
+// ===================================================
+// 保存インジケーター
+// ===================================================
+function flashSave() {
+  const el = document.getElementById('save-indicator');
+  el.classList.add('visible');
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => el.classList.remove('visible'), 2000);
+}
+
+// ===================================================
+// マップ一覧
+// ===================================================
+function renderMapList() {
+  const list = document.getElementById('map-list');
+  if (!_maps.length) {
+    list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--color-text-muted); font-size:0.85rem">マップがありません</div>';
+    return;
+  }
+  list.innerHTML = _maps.map(m => {
+    const d = new Date(m.updated_at).toLocaleDateString('ja-JP', { month:'numeric', day:'numeric' });
+    return `
+      <div class="map-item ${m.id === _currentMapId ? 'active' : ''}" data-id="${m.id}">
+        <span class="map-item-title">${m.title}</span>
+        <span class="map-item-date">${d}</span>
+        <button class="map-item-del" data-del="${m.id}" title="削除"><i class="fa-solid fa-trash"></i></button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.map-item').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('[data-del]')) return;
+      loadMap(el.dataset.id);
+      closeSidebar();
+    });
+  });
+  list.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteMap(btn.dataset.del);
+    });
+  });
+}
+
+// ===================================================
+// マップ操作
+// ===================================================
+async function loadMap(id) {
+  _currentMapId = id;
+  _selectedNodeId = null;
+  const map = await API.getMindmap(id);
+  if (!map) return;
+  _nodes = map.mindmap_nodes || [];
+  document.getElementById('map-title').textContent = map.title;
+  document.getElementById('btn-add-node').disabled = false;
+  document.getElementById('canvas-empty').style.display = 'none';
+  renderNodes();
+  renderMapList();
+}
+
+async function createMap() {
+  const map = await API.createMindmap(_profile.id);
+  // 中央ノードを自動作成
+  const centralNode = await API.upsertNode({
+    mindmap_id: map.id,
+    title: '中心',
+    is_central: true,
+    position_x: 400,
+    position_y: 300,
+  });
+  _maps.unshift(map);
+  renderMapList();
+  await loadMap(map.id);
+}
+
+async function deleteMap(id) {
+  if (!confirm('このマップを削除しますか？')) return;
+  await API.deleteMindmap(id);
+  _maps = _maps.filter(m => m.id !== id);
+  if (_currentMapId === id) {
+    _currentMapId = null;
+    _nodes = [];
+    document.getElementById('map-title').textContent = 'マップを選択してください';
+    document.getElementById('btn-add-node').disabled = true;
+    document.getElementById('canvas-empty').style.display = 'flex';
+    renderNodes();
+  }
+  renderMapList();
+}
+
+// マップタイトル編集
+document.getElementById('map-title').addEventListener('click', async () => {
+  if (!_currentMapId) return;
+  const cur = document.getElementById('map-title').textContent;
+  const newTitle = prompt('マップ名を入力してください', cur);
+  if (!newTitle || newTitle === cur) return;
+  document.getElementById('map-title').textContent = newTitle;
+  await API.updateMindmapTitle(_currentMapId, newTitle);
+  const m = _maps.find(m => m.id === _currentMapId);
+  if (m) m.title = newTitle;
+  renderMapList();
+});
+
+// ===================================================
+// ノード描画
+// ===================================================
+function renderNodes() {
+  const layer = document.getElementById('nodes-layer');
+  const svg   = document.getElementById('edges-svg');
+
+  layer.innerHTML = '';
+  svg.innerHTML   = '';
+
+  _nodes.forEach(n => {
+    const el = document.createElement('div');
+    el.className = `node ${n.is_central ? 'central' : ''} ${n.id === _selectedNodeId ? 'selected' : ''}`;
+    el.dataset.id = n.id;
+    el.style.left = n.position_x + 'px';
+    el.style.top  = n.position_y + 'px';
+    if (n.width)  el.style.width  = n.width  + 'px';
+    if (n.height) el.style.height = n.height + 'px';
+
+    el.innerHTML = `
+      <div class="node-title">${n.title || ''}</div>
+      ${n.comment ? `<div class="node-comment">${n.comment}</div>` : ''}
+      <button class="node-add-btn" data-parent="${n.id}" title="子ノードを追加">+</button>
+      <button class="node-del-btn" data-del="${n.id}" title="削除">×</button>
+    `;
+
+    attachNodeEvents(el, n);
+    layer.appendChild(el);
+
+    // エッジ描画（親 → 子）
+    if (n.parent_id) {
+      const parent = _nodes.find(p => p.id === n.parent_id);
+      if (parent) drawEdge(svg, parent, n);
+    }
+  });
+}
+
+function drawEdge(svg, from, to) {
+  const fx = from.position_x + (from.width || 160) / 2;
+  const fy = from.position_y + (from.height || 40) / 2;
+  const tx = to.position_x   + (to.width   || 160) / 2;
+  const ty = to.position_y   + (to.height  || 40) / 2;
+
+  const cp1x = fx + (tx - fx) * 0.5;
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  line.setAttribute('d', `M${fx},${fy} C${cp1x},${fy} ${cp1x},${ty} ${tx},${ty}`);
+  line.setAttribute('stroke', '#d1d5db');
+  line.setAttribute('stroke-width', '1.5');
+  line.setAttribute('fill', 'none');
+  svg.appendChild(line);
+}
+
+// ===================================================
+// ノードイベント
+// ===================================================
+function attachNodeEvents(el, n) {
+  // ダブルクリックで編集
+  el.addEventListener('dblclick', () => startEditNode(el, n));
+
+  // 子ノード追加ボタン
+  el.querySelector('.node-add-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    addChildNode(n);
+  });
+
+  // 削除ボタン
+  const delBtn = el.querySelector('.node-del-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteNode(n.id);
+    });
+  }
+
+  // 選択
+  el.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _selectedNodeId = n.id;
+    renderNodes();
+    startDragNode(e, n);
+  });
+  el.addEventListener('touchstart', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _selectedNodeId = n.id;
+    renderNodes();
+    startDragNodeTouch(e, n);
+  }, { passive: false });
+}
+
+// ===================================================
+// ノードドラッグ（マウス）
+// ===================================================
+function startDragNode(e, n) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const origX  = n.position_x;
+  const origY  = n.position_y;
+  let moved    = false;
+
+  const onMove = mv => {
+    const dx = (mv.clientX - startX) / _vt.scale;
+    const dy = (mv.clientY - startY) / _vt.scale;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+    n.position_x = origX + dx;
+    n.position_y = origY + dy;
+    renderNodes();
+  };
+  const onUp = async () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (moved) {
+      await saveNode(n);
+    }
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ===================================================
+// ノードドラッグ（タッチ）
+// ===================================================
+function startDragNodeTouch(e, n) {
+  e.preventDefault();
+  const t0 = e.touches[0];
+  const startX = t0.clientX;
+  const startY = t0.clientY;
+  const origX  = n.position_x;
+  const origY  = n.position_y;
+  let moved    = false;
+
+  const onMove = ev => {
+    const t = ev.touches[0];
+    const dx = (t.clientX - startX) / _vt.scale;
+    const dy = (t.clientY - startY) / _vt.scale;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+    n.position_x = origX + dx;
+    n.position_y = origY + dy;
+    renderNodes();
+  };
+  const onEnd = async () => {
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onEnd);
+    if (moved) await saveNode(n);
+  };
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('touchend', onEnd);
+}
+
+// ===================================================
+// ノード編集
+// ===================================================
+function startEditNode(el, n) {
+  const titleEl = el.querySelector('.node-title');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = n.title;
+  input.style.cssText = `position:absolute; inset:0; width:100%; height:100%; box-sizing:border-box; border:2px solid #0a84ff; border-radius:14px; padding:10px 12px; font-size:0.88rem; font-weight:700; background:#fff; z-index:10;`;
+  el.appendChild(input);
+  input.focus();
+  input.select();
+
+  const finish = async (commit) => {
+    if (commit && input.value.trim()) {
+      n.title = input.value.trim();
+      await saveNode(n);
+    }
+    input.remove();
+    renderNodes();
+  };
+  input.addEventListener('blur',    () => finish(true));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); finish(true);  }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+}
+
+// ===================================================
+// ノード追加
+// ===================================================
+async function addChildNode(parent) {
+  const newNode = {
+    mindmap_id: _currentMapId,
+    title: '新規ノード',
+    is_central: false,
+    parent_id: parent.id,
+    position_x: parent.position_x + 220,
+    position_y: parent.position_y + (_nodes.filter(n => n.parent_id === parent.id).length * 60),
+  };
+  const saved = await API.upsertNode(newNode);
+  _nodes.push(saved);
+  flashSave();
+  renderNodes();
+}
+
+document.getElementById('btn-add-node').addEventListener('click', () => {
+  if (!_currentMapId) return;
+  const central = _nodes.find(n => n.is_central);
+  if (central) addChildNode(central);
+});
+
+// ===================================================
+// ノード保存
+// ===================================================
+async function saveNode(n) {
+  flashSave();
+  const saved = await API.upsertNode(n);
+  const idx = _nodes.findIndex(nd => nd.id === saved.id);
+  if (idx >= 0) _nodes[idx] = saved;
+  else _nodes.push(saved);
+}
+
+// ===================================================
+// ノード削除
+// ===================================================
+async function deleteNode(id) {
+  if (!confirm('このノードを削除しますか？（子ノードは残ります）')) return;
+  await API.deleteNode(id);
+  _nodes = _nodes.filter(n => n.id !== id);
+  // 子ノードの親をnullに（フロント側のみ）
+  _nodes.filter(n => n.parent_id === id).forEach(n => n.parent_id = null);
+  flashSave();
+  renderNodes();
+}
+
+// ===================================================
+// キャンバスパン（マウス）
+// ===================================================
+const canvasEl = document.getElementById('canvas-area');
+let _panning = false;
+let _panStart = null;
+let _panOrigin = null;
+
+canvasEl.addEventListener('mousedown', e => {
+  if (e.target !== canvasEl && e.target !== document.getElementById('stage') &&
+      e.target !== document.getElementById('nodes-layer') && e.target !== document.getElementById('edges-svg')) return;
+  _panning  = true;
+  _panStart = { x: e.clientX, y: e.clientY };
+  _panOrigin = { x: _vt.x, y: _vt.y };
+  _selectedNodeId = null;
+  renderNodes();
+});
+document.addEventListener('mousemove', e => {
+  if (!_panning) return;
+  _vt.x = _panOrigin.x + (e.clientX - _panStart.x);
+  _vt.y = _panOrigin.y + (e.clientY - _panStart.y);
+  applyVT();
+});
+document.addEventListener('mouseup', () => { _panning = false; });
+
+// ズーム（ホイール）
+canvasEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.91;
+  const rect = canvasEl.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  _vt.x = px - (_vt.scale * factor) / _vt.scale * (px - _vt.x);
+  _vt.y = py - (_vt.scale * factor) / _vt.scale * (py - _vt.y);
+  _vt.scale = Math.min(3, Math.max(0.3, _vt.scale * factor));
+  applyVT();
+}, { passive: false });
+
+// タッチパン & ピンチズーム
+let _touches = {};
+canvasEl.addEventListener('touchstart', e => {
+  Array.from(e.changedTouches).forEach(t => _touches[t.identifier] = { x: t.clientX, y: t.clientY });
+  if (Object.keys(_touches).length === 1) {
+    const t = e.touches[0];
+    _panStart  = { x: t.clientX, y: t.clientY };
+    _panOrigin = { x: _vt.x, y: _vt.y };
+  }
+}, { passive: false });
+
+canvasEl.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const ids = Object.keys(_touches);
+  if (ids.length === 1) {
+    const t = e.touches[0];
+    _vt.x = _panOrigin.x + (t.clientX - _panStart.x);
+    _vt.y = _panOrigin.y + (t.clientY - _panStart.y);
+    applyVT();
+  } else if (ids.length === 2) {
+    // ピンチズーム（簡易版）
+    const [t1, t2] = Array.from(e.touches);
+    const curDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    const prevT1 = _touches[t1.identifier] || t1;
+    const prevT2 = _touches[t2.identifier] || t2;
+    const prevDist = Math.hypot(prevT1.x - prevT2.x, prevT1.y - prevT2.y);
+    if (prevDist > 0) {
+      const factor = curDist / prevDist;
+      _vt.scale = Math.min(3, Math.max(0.3, _vt.scale * factor));
+      applyVT();
+    }
+    [t1, t2].forEach(t => _touches[t.identifier] = { x: t.clientX, y: t.clientY });
+  }
+}, { passive: false });
+
+canvasEl.addEventListener('touchend', e => {
+  Array.from(e.changedTouches).forEach(t => delete _touches[t.identifier]);
+}, { passive: false });
+
+// ===================================================
+// モバイルサイドバートグル
+// ===================================================
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
+}
+document.getElementById('btn-sidebar-toggle').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('drawer-overlay').classList.toggle('open');
+});
+document.getElementById('drawer-overlay').addEventListener('click', closeSidebar);
+
+// モバイル判定でトグルボタン表示
+function checkMobile() {
+  const isMobile = window.innerWidth <= 767;
+  document.getElementById('btn-sidebar-toggle').style.display = isMobile ? 'inline-flex' : 'none';
+}
+checkMobile();
+window.addEventListener('resize', checkMobile);
+
+// 新規マップ
+document.getElementById('btn-new-map').addEventListener('click', createMap);
+
+// ===================================================
+// URLパラメータ ?id=<uuid> で直接開く
+// ===================================================
+async function openFromUrl() {
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (id && _maps.find(m => m.id === id)) {
+    await loadMap(id);
+  }
+}
+
+// ===================================================
+// 初期化
+// ===================================================
+(async () => {
+  const auth = await Auth.requireAuth();
+  if (!auth) return;
+  _profile = auth.profile;
+
+  _maps = await API.getMindmaps(_profile.id);
+  renderMapList();
+  await openFromUrl();
+})();
+</script>
+</body>
+</html>

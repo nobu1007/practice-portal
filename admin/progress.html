@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>進捗管理 — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="../assets/css/common.css">
+  <link rel="stylesheet" href="../assets/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/js/supabase-init.js"></script>
+  <script src="../assets/js/auth.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/nav.js"></script>
+  <style>
+    .member-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--color-border);
+      box-shadow: var(--shadow-sm);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .member-card-header {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+    }
+    .member-avatar-lg {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--color-grad-start), var(--color-grad-end));
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 700; flex-shrink: 0;
+    }
+    .task-progress-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 0; font-size: 0.85rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .task-progress-row:last-child { border-bottom: none; }
+    .task-progress-row .name { flex: 1; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="../dashboard.html" class="nav-brand"><i class="fa-solid fa-fire"></i> Practice Portal</a>
+  <ul class="nav-links">
+    <li><a href="../dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a></li>
+    <li><a href="../tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a></li>
+    <li><a href="../quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a></li>
+    <li><a href="../mindmap.html"><i class="fa-solid fa-diagram-project"></i> マップ</a></li>
+    <li><a href="invite.html"><i class="fa-solid fa-key"></i> 招待コード</a></li>
+  </ul>
+  <div class="nav-user">
+    <span class="badge badge-warning"><i class="fa-solid fa-shield-halved"></i> 管理者</span>
+    <span class="nav-user-name">---</span>
+    <button class="btn btn-ghost btn-sm nav-logout-btn"><i class="fa-solid fa-right-from-bracket"></i></button>
+    <button class="nav-toggle" id="nav-toggle"><i class="fa-solid fa-bars"></i></button>
+  </div>
+</nav>
+
+<div class="nav-mobile-menu" id="nav-mobile-menu">
+  <a href="../dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a>
+  <a href="../tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a>
+  <a href="../quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a>
+  <a href="../mindmap.html"><i class="fa-solid fa-diagram-project"></i> マインドマップ</a>
+  <a href="invite.html"><i class="fa-solid fa-key"></i> 招待コード管理</a>
+  <div class="divider"></div>
+  <a href="#" class="nav-logout-btn" style="color:var(--color-text-muted)"><i class="fa-solid fa-right-from-bracket"></i> ログアウト</a>
+</div>
+
+<main class="page">
+  <div class="container">
+
+    <div id="loading" class="loading-wrap"><div class="spinner"></div><span>読み込み中...</span></div>
+
+    <div id="content" style="display:none">
+      <h2 class="section-title"><i class="fa-solid fa-chart-bar"></i> メンバー進捗管理</h2>
+      <div id="member-list"></div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  const STATUS_LABEL = {
+    not_started: { text: '未着手', cls: 'badge-muted' },
+    in_progress:  { text: '進行中', cls: 'badge-primary' },
+    requested:    { text: '申請中', cls: 'badge-warning' },
+    approved:     { text: '完了',   cls: 'badge-success' },
+  };
+
+  async function renderMembers(profiles, tasks, allTaskProgress, allQuizProgress, allStats) {
+    const list = document.getElementById('member-list');
+
+    if (!profiles.length) {
+      list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-users"></i><p>メンバーがいません</p></div>';
+      return;
+    }
+
+    list.innerHTML = profiles.map(p => {
+      const stats = allStats[p.id];
+      const level = stats?.level || 1;
+      const exp   = stats?.total_exp || 0;
+      const curReq  = level * (level - 1) / 2 * 100;
+      const nextReq = level * (level + 1) / 2 * 100;
+      const expPct = nextReq > curReq ? Math.min(100, ((exp - curReq) / (nextReq - curReq)) * 100) : 100;
+      const initial = (p.display_name || '?')[0].toUpperCase();
+
+      const myTaskProgress  = allTaskProgress.filter(tp => tp.user_id === p.id);
+      const myQuizProgress  = allQuizProgress.filter(qp => qp.user_id === p.id);
+      const completedTasks  = myTaskProgress.filter(tp => tp.status === 'approved').length;
+      const completedQuiz   = myQuizProgress.filter(qp => qp.completed).length;
+      const requestedTasks  = myTaskProgress.filter(tp => tp.status === 'requested');
+
+      const taskRows = tasks.map(task => {
+        const tp = myTaskProgress.find(tp => tp.task_id === task.id);
+        const status = tp?.status || 'not_started';
+        const sl = STATUS_LABEL[status];
+        return `
+          <div class="task-progress-row">
+            <span class="name">${task.title}</span>
+            <span class="badge ${sl.cls}">${sl.text}</span>
+            ${status === 'requested' ? `<button class="btn btn-success btn-sm" data-action="approve" data-pid="${tp.id}"><i class="fa-solid fa-check"></i> 承認</button>` : ''}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="member-card">
+          <div class="member-card-header">
+            <div class="member-avatar-lg">${initial}</div>
+            <div style="flex:1">
+              <div style="font-weight:700; font-size:1rem">${p.display_name} <span class="badge ${p.role === 'admin' ? 'badge-warning' : 'badge-muted'}">${p.role}</span></div>
+              <div style="font-size:0.8rem; color:var(--color-text-muted); margin-top:2px">
+                Lv.${level} &nbsp;·&nbsp; ${exp} EXP &nbsp;·&nbsp; タスク完了: ${completedTasks} &nbsp;·&nbsp; クイズ完了: ${completedQuiz}
+              </div>
+            </div>
+          </div>
+          <div class="exp-bar-wrap" style="margin-bottom:16px">
+            <div class="exp-bar-header">
+              <span class="exp-level-badge">Lv.${level}</span>
+              <span style="font-size:0.8rem; color:var(--color-text-muted)">${exp} EXP</span>
+            </div>
+            <div class="exp-track"><div class="exp-fill" style="width:${expPct}%"></div></div>
+          </div>
+          ${tasks.length ? `<div style="font-size:0.82rem; font-weight:600; color:var(--color-text-muted); margin-bottom:6px">タスク進捗</div>${taskRows}` : ''}
+        </div>`;
+    }).join('');
+
+    // 承認ボタン
+    list.querySelectorAll('[data-action=approve]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const result = await API.approveTask(btn.dataset.pid);
+          alert(`承認しました！ +${result.exp_granted} EXP`);
+          location.reload();
+        } catch(e) {
+          alert(e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  (async () => {
+    const auth = await Auth.requireAdmin();
+    if (!auth) return;
+    Nav.init();
+    Nav.setUserName(auth.profile.display_name);
+
+    const [profiles, tasks] = await Promise.all([
+      API.getAllProfiles(),
+      API.getTasks(),
+    ]);
+
+    // 各ユーザーの進捗を取得
+    const [allTaskProgress, allQuizProgress] = await Promise.all([
+      Promise.all(profiles.map(p => API.getUserTaskProgress(p.id))).then(arr => arr.flat()),
+      Promise.all(profiles.map(p => API.getUserQuizProgress(p.id))).then(arr => arr.flat()),
+    ]);
+
+    const statsArr = await Promise.all(profiles.map(p => API.getUserStats(p.id)));
+    const allStats = {};
+    profiles.forEach((p, i) => allStats[p.id] = statsArr[i]);
+
+    await renderMembers(profiles, tasks, allTaskProgress, allQuizProgress, allStats);
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  })();
+</script>
+</body>
+</html>

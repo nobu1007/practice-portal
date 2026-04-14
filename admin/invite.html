@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>招待コード管理 — Practice Portal</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="../assets/css/common.css">
+  <link rel="stylesheet" href="../assets/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../assets/js/supabase-init.js"></script>
+  <script src="../assets/js/auth.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/nav.js"></script>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="../dashboard.html" class="nav-brand"><i class="fa-solid fa-fire"></i> Practice Portal</a>
+  <ul class="nav-links">
+    <li><a href="../dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a></li>
+    <li><a href="../tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a></li>
+    <li><a href="../quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a></li>
+    <li><a href="../mindmap.html"><i class="fa-solid fa-diagram-project"></i> マップ</a></li>
+    <li><a href="progress.html"><i class="fa-solid fa-chart-bar"></i> 進捗</a></li>
+  </ul>
+  <div class="nav-user">
+    <span class="badge badge-warning"><i class="fa-solid fa-shield-halved"></i> 管理者</span>
+    <span class="nav-user-name">---</span>
+    <button class="btn btn-ghost btn-sm nav-logout-btn"><i class="fa-solid fa-right-from-bracket"></i></button>
+    <button class="nav-toggle" id="nav-toggle"><i class="fa-solid fa-bars"></i></button>
+  </div>
+</nav>
+
+<div class="nav-mobile-menu" id="nav-mobile-menu">
+  <a href="../dashboard.html"><i class="fa-solid fa-house"></i> ダッシュボード</a>
+  <a href="../tasks.html"><i class="fa-solid fa-list-check"></i> タスク</a>
+  <a href="../quiz.html"><i class="fa-solid fa-circle-question"></i> クイズ</a>
+  <a href="../mindmap.html"><i class="fa-solid fa-diagram-project"></i> マインドマップ</a>
+  <a href="progress.html"><i class="fa-solid fa-chart-bar"></i> 進捗管理</a>
+  <div class="divider"></div>
+  <a href="#" class="nav-logout-btn" style="color:var(--color-text-muted)"><i class="fa-solid fa-right-from-bracket"></i> ログアウト</a>
+</div>
+
+<main class="page">
+  <div class="container">
+
+    <div id="loading" class="loading-wrap"><div class="spinner"></div><span>読み込み中...</span></div>
+
+    <div id="content" style="display:none">
+      <h2 class="section-title"><i class="fa-solid fa-key"></i> 招待コード管理</h2>
+
+      <!-- 新規作成フォーム -->
+      <div class="card" style="margin-bottom:24px">
+        <div class="card-header"><h3 class="card-title">新しい招待コードを発行</h3></div>
+        <div class="card-body">
+          <div id="alert-create" class="alert" style="display:none"></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:end">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">コード</label>
+              <input type="text" id="input-code" class="form-input" placeholder="例: INVITE-001" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">権限</label>
+              <select id="input-role" class="form-select">
+                <option value="member">メンバー</option>
+                <option value="admin">管理者</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">最大使用回数</label>
+              <input type="number" id="input-max-uses" class="form-input" value="1" min="1" max="100">
+            </div>
+          </div>
+          <div style="margin-top:12px; display:flex; align-items:center; gap:12px">
+            <div class="form-group" style="margin:0; flex:1">
+              <label class="form-label">有効期限（任意）</label>
+              <input type="datetime-local" id="input-expires" class="form-input">
+            </div>
+            <div style="margin-top:20px">
+              <button class="btn btn-primary" id="btn-create"><i class="fa-solid fa-plus"></i> 発行</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- コード一覧 -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">発行済みコード一覧</h3></div>
+        <div class="card-body" style="padding:0">
+          <div id="invite-list"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<style>
+  .invite-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.88rem;
+  }
+  .invite-row:last-child { border-bottom: none; }
+  .invite-code { font-family: monospace; font-weight: 700; font-size: 0.92rem; }
+  @media (max-width: 767px) {
+    .invite-row { grid-template-columns: 1fr auto; flex-wrap: wrap; }
+  }
+</style>
+
+<script>
+  let _codes = [];
+
+  function showAlert(el, type, msg) {
+    el.className = `alert alert-${type}`;
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 4000);
+  }
+
+  function renderList() {
+    const list = document.getElementById('invite-list');
+    if (!_codes.length) {
+      list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-key"></i><p>コードがありません</p></div>';
+      return;
+    }
+    list.innerHTML = _codes.map(c => {
+      const isExpired = c.expires_at && new Date(c.expires_at) < new Date();
+      const isUsedUp  = c.used_count >= c.max_uses;
+      const status = isExpired ? '期限切れ' : isUsedUp ? '使用済み' : '有効';
+      const statusCls = isExpired || isUsedUp ? 'badge-danger' : 'badge-success';
+      const expires = c.expires_at ? new Date(c.expires_at).toLocaleDateString('ja-JP') : '無期限';
+
+      return `
+        <div class="invite-row">
+          <div>
+            <div class="invite-code">${c.code}</div>
+            <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top:2px">
+              権限: ${c.role_to_grant} &nbsp;·&nbsp; 使用: ${c.used_count}/${c.max_uses} &nbsp;·&nbsp; 期限: ${expires}
+            </div>
+          </div>
+          <span class="badge ${statusCls}">${status}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // ランダムコード生成
+  function generateCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  }
+
+  document.getElementById('btn-create').addEventListener('click', async () => {
+    const code     = document.getElementById('input-code').value.trim() || generateCode();
+    const role     = document.getElementById('input-role').value;
+    const maxUses  = parseInt(document.getElementById('input-max-uses').value) || 1;
+    const expires  = document.getElementById('input-expires').value;
+    const alertEl  = document.getElementById('alert-create');
+    const btn      = document.getElementById('btn-create');
+
+    btn.disabled = true;
+    try {
+      const created = await API.createInviteCode(code, role, maxUses, expires || null);
+      _codes.unshift(created);
+      renderList();
+      document.getElementById('input-code').value = '';
+      document.getElementById('input-expires').value = '';
+      showAlert(alertEl, 'success', `コード "${created.code}" を発行しました`);
+    } catch(e) {
+      showAlert(alertEl, 'error', e.message || '発行に失敗しました');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  (async () => {
+    const auth = await Auth.requireAdmin();
+    if (!auth) return;
+    Nav.init();
+    Nav.setUserName(auth.profile.display_name);
+
+    _codes = await API.getInviteCodes();
+    renderList();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  })();
+</script>
+</body>
+</html>
