@@ -32,7 +32,7 @@ const Auth = (() => {
     const { error } = await getClient().auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin + '/index.html',
+        emailRedirectTo: 'http://localhost:5500/index.html',
       },
     });
     if (error) throw error;

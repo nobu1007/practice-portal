@@ -143,48 +143,68 @@
 </main>
 
 <script>
-  (async () => {
-    const auth = await Auth.requireAuth();
-    if (!auth) return;
+  // ============================================================
+  // PREVIEW_MODE = true でSupabase未接続でもデザイン確認できる
+  // 本番運用時は false に戻す
+  // ============================================================
+  const PREVIEW_MODE = true;
 
-    const { profile } = auth;
+  (async () => {
+    let profile = { id: 'demo', display_name: 'デモユーザー', role: 'member' };
+
+    if (!PREVIEW_MODE) {
+      const auth = await Auth.requireAuth();
+      if (!auth) return;
+      profile = auth.profile;
+    }
 
     Nav.init();
     Nav.setUserName(profile.display_name);
     document.getElementById('user-name').textContent = profile.display_name;
 
-    // EXP / レベル
-    const stats = await API.getUserStats(profile.id);
-    if (stats) {
-      document.getElementById('level-badge').textContent = `Lv.${stats.level}`;
-      document.getElementById('exp-text').textContent = `${stats.total_exp} EXP`;
-      // 次レベルまでのEXP計算
-      const curLvReq = stats.level * (stats.level - 1) / 2 * 100;
-      const nextLvReq = stats.level * (stats.level + 1) / 2 * 100;
-      const progress = nextLvReq > curLvReq
-        ? Math.min(100, ((stats.total_exp - curLvReq) / (nextLvReq - curLvReq)) * 100)
-        : 100;
-      document.getElementById('exp-fill').style.width = progress + '%';
+    // EXP / レベル（デモデータ）
+    if (PREVIEW_MODE) {
+      document.getElementById('level-badge').textContent = 'Lv.3';
+      document.getElementById('exp-text').textContent = '450 EXP';
+      document.getElementById('exp-fill').style.width = '75%';
+    } else {
+      const stats = await API.getUserStats(profile.id);
+      if (stats) {
+        document.getElementById('level-badge').textContent = `Lv.${stats.level}`;
+        document.getElementById('exp-text').textContent = `${stats.total_exp} EXP`;
+        const curLvReq = stats.level * (stats.level - 1) / 2 * 100;
+        const nextLvReq = stats.level * (stats.level + 1) / 2 * 100;
+        const progress = nextLvReq > curLvReq
+          ? Math.min(100, ((stats.total_exp - curLvReq) / (nextLvReq - curLvReq)) * 100)
+          : 100;
+        document.getElementById('exp-fill').style.width = progress + '%';
+      }
     }
 
     // タスク統計
-    const [taskProgress, quizProgress, maps] = await Promise.all([
-      API.getUserTaskProgress(profile.id),
-      API.getUserQuizProgress(profile.id),
-      API.getMindmaps(profile.id),
-    ]);
+    let taskProgress = [], quizProgress = [], maps = [];
+    if (!PREVIEW_MODE) {
+      try {
+        [taskProgress, quizProgress, maps] = await Promise.all([
+          API.getUserTaskProgress(profile.id),
+          API.getUserQuizProgress(profile.id),
+          API.getMindmaps(profile.id),
+        ]);
+      } catch(e) { /* skip */ }
+    }
 
-    const inProgress = taskProgress.filter(p => p.status === 'in_progress' || p.status === 'requested').length;
+    const inProgress = PREVIEW_MODE ? 2 : taskProgress.filter(p => p.status === 'in_progress' || p.status === 'requested').length;
     const now = new Date();
-    const reviewDue = quizProgress.filter(p => p.next_review_at && new Date(p.next_review_at) <= now).length;
+    const reviewDue = PREVIEW_MODE ? 3 : quizProgress.filter(p => p.next_review_at && new Date(p.next_review_at) <= now).length;
+    const mapCount  = PREVIEW_MODE ? 1 : maps.length;
 
     document.getElementById('stat-tasks').innerHTML = `${inProgress} <span class="unit">件</span>`;
     document.getElementById('stat-quiz').innerHTML  = `${reviewDue} <span class="unit">問</span>`;
-    document.getElementById('stat-maps').innerHTML  = `${maps.length} <span class="unit">個</span>`;
+    document.getElementById('stat-maps').innerHTML  = `${mapCount} <span class="unit">個</span>`;
 
     document.getElementById('card-tasks-meta').textContent = inProgress > 0 ? `進行中 ${inProgress} 件` : 'タスクなし';
     document.getElementById('card-quiz-meta').textContent  = reviewDue > 0 ? `復習 ${reviewDue} 問あり` : '今日の復習なし';
-    document.getElementById('card-maps-meta').textContent  = `マップ ${maps.length} 個`;
+    document.getElementById('card-maps-meta').textContent  = `マップ ${mapCount} 個`;
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
